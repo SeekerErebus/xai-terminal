@@ -180,7 +180,7 @@ def display_help():
     console.print(Panel(help_text, title="Help", border_style="blue"))
 
 
-def handle_command(command: str, config: Config, session: ChatSession) -> bool:
+def handle_command(command: str, config: Config, session: ChatSession) -> Optional[bool]:
     """
     Handle special commands. Returns True if command was handled, False otherwise.
     Returns None if the application should exit.
@@ -298,7 +298,10 @@ def stream_response(session: ChatSession, config: Config) -> str:
 def get_response(session: ChatSession, config: Config) -> str:
     """Get complete response from xAI API (non-streaming)."""
     try:
-        response = session.chat.sample()
+        response = session.chat.sample(
+            temperature=config.temperature,
+            max_tokens=config.max_tokens,
+        )
         
         # Handle different response structures
         if hasattr(response, "content"):

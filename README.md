@@ -37,12 +37,12 @@ uv sync
 pip install -e .
 ```
 
-3. Create a `.env` file in the project root:
+3. Create a `.env` file in the project root and add your xAI API key:
 ```bash
-cp .env.example .env
+echo "XAI_API_KEY=your_actual_api_key_here" > .env
 ```
 
-4. Edit `.env` and add your xAI API key:
+Or manually create a `.env` file with:
 ```
 XAI_API_KEY=your_actual_api_key_here
 ```
@@ -175,7 +175,6 @@ All errors are displayed with clear, user-friendly messages.
 xai-terminal/
 ├── main.py              # Main application entry point
 ├── pyproject.toml       # Dependencies and project config
-├── .env.example         # Environment variable template
 ├── .gitignore           # Git ignore rules
 ├── README.md            # This file
 └── uv.lock              # Dependency lock file
