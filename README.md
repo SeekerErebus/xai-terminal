@@ -63,7 +63,7 @@ python main.py [OPTIONS]
 ```
 
 **Options:**
-- `--model MODEL`: Select xAI model (default: `grok-beta`)
+- `--model MODEL`: Select xAI model (default: `grok-4-1-fast`)
 - `--temperature FLOAT`: Set temperature parameter 0.0-2.0 (default: `0.7`)
 - `--max-tokens INT`: Set maximum tokens in response (default: `2048`)
 - `--file PATH`: Read initial prompt from a file
@@ -125,7 +125,7 @@ Assistant: Of course! I'd be happy to help you with Python. What would you like 
 You: /config
 
 Current Configuration:
-  Model: grok-beta
+  Model: grok-4-1-fast
   Temperature: 0.7
   Max Tokens: 2048
   Streaming: True
@@ -149,7 +149,7 @@ The application reads configuration from a `.env` file:
 
 ### Default Settings
 
-- **Model**: `grok-beta`
+- **Model**: `grok-4-1-fast`
 - **Temperature**: `0.7`
 - **Max Tokens**: `2048`
 - **Streaming**: Enabled

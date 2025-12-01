@@ -65,7 +65,7 @@ class Config:
     
     def __init__(
         self,
-        model: str = "grok-beta",
+        model: str = "grok-4-1-fast",
         temperature: float = 0.7,
         max_tokens: int = 2048,
         stream: bool = True,
@@ -104,7 +104,7 @@ def load_config_from_env() -> Dict[str, Any]:
     XAI_API_KEY=your_api_key_here
     
     # Optional configuration (with defaults)
-    XAI_MODEL=grok-beta
+    XAI_MODEL=grok-4-1-fast
     XAI_TEMPERATURE=0.7
     XAI_MAX_TOKENS=2048
     XAI_STREAM=true
@@ -123,8 +123,8 @@ def load_config_from_env() -> Dict[str, Any]:
         sys.exit(1)
     config["api_key"] = api_key
     
-    # Optional: Model (default: grok-beta)
-    config["model"] = os.getenv("XAI_MODEL", "grok-beta")
+    # Optional: Model (default: grok-4-1-fast)
+    config["model"] = os.getenv("XAI_MODEL", "grok-4-1-fast")
     
     # Optional: Temperature (default: 0.7)
     try:
@@ -203,7 +203,7 @@ def handle_command(command: str, config: Config, session: ChatSession) -> bool:
     elif cmd == "/model":
         if len(parts) < 2:
             console.print("[bold red]Error:[/bold red] Please specify a model name.")
-            console.print("Example: /model grok-beta")
+            console.print("Example: /model grok-4-1-fast")
             return True
         new_model = parts[1]
         config.update(model=new_model)
@@ -426,7 +426,7 @@ def main():
     # Load configuration from .env file
     # .env file format:
     # XAI_API_KEY=your_api_key_here          # Required
-    # XAI_MODEL=grok-beta                     # Optional, default: grok-beta
+    # XAI_MODEL=grok-4-1-fast                     # Optional, default: grok-4-1-fast
     # XAI_TEMPERATURE=0.7                     # Optional, default: 0.7
     # XAI_MAX_TOKENS=2048                     # Optional, default: 2048
     # XAI_STREAM=true                          # Optional, default: true (use true/false, yes/no, on/off, 1/0)
