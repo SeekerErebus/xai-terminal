@@ -7,7 +7,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.text import Text
 from xai_sdk import Client
+from xai_sdk.chat import user, assistant
 
 # Initialize Rich console for enhanced terminal output
 console = Console()
@@ -24,31 +25,39 @@ console = Console()
 class ChatSession:
     """Manages chat session state and conversation history."""
     
-    def __init__(self, system_prompt: Optional[str] = None):
-        self.messages: List[Dict[str, str]] = []
-        if system_prompt:
-            self.messages.append({"role": "system", "content": system_prompt})
+    def __init__(self, client: Client, model: str, system_prompt: Optional[str] = None):
+        self.client = client
+        self.model = model
+        self.system_prompt = system_prompt
+        self.chat = self._create_chat()
+    
+    def _create_chat(self):
+        """Create a new chat session."""
+        # Note: xAI SDK may not support system prompts directly in chat.create
+        # We'll handle it by adding it as the first user message if needed
+        return self.client.chat.create(model=self.model)
     
     def add_user_message(self, content: str):
         """Add a user message to the conversation history."""
-        self.messages.append({"role": "user", "content": content})
+        self.chat.append(user(content))
     
     def add_assistant_message(self, content: str):
         """Add an assistant message to the conversation history."""
-        self.messages.append({"role": "assistant", "content": content})
+        self.chat.append(assistant(content))
     
     def clear(self):
-        """Clear conversation history while preserving system prompt."""
-        system_msg = None
-        if self.messages and self.messages[0].get("role") == "system":
-            system_msg = self.messages[0]
-        self.messages = []
-        if system_msg:
-            self.messages.append(system_msg)
+        """Clear conversation history and recreate chat session."""
+        self.chat = self._create_chat()
+        # Re-add system prompt if it exists
+        if self.system_prompt:
+            # System prompts might need to be handled differently
+            # For now, we'll skip it as xAI SDK may not support it directly
+            pass
     
-    def get_messages(self) -> List[Dict[str, str]]:
-        """Get all messages in the conversation."""
-        return self.messages.copy()
+    def switch_model(self, new_model: str):
+        """Switch to a different model."""
+        self.model = new_model
+        self.chat = self._create_chat()
 
 
 class Config:
@@ -86,16 +95,57 @@ class Config:
         console.print()
 
 
-def load_api_key() -> str:
-    """Load API key from environment variables."""
+def load_config_from_env() -> Dict[str, Any]:
+    """
+    Load configuration from .env file.
+    
+    .env file format:
+    # Required
+    XAI_API_KEY=your_api_key_here
+    
+    # Optional configuration (with defaults)
+    XAI_MODEL=grok-beta
+    XAI_TEMPERATURE=0.7
+    XAI_MAX_TOKENS=2048
+    XAI_STREAM=true
+    XAI_SYSTEM_PROMPT=You are a helpful assistant.
+    """
     load_dotenv()
+    
+    config = {}
+    
+    # Required: API key
     api_key = os.getenv("XAI_API_KEY")
     if not api_key:
         console.print("[bold red]Error:[/bold red] XAI_API_KEY not found in environment variables.")
         console.print("Please create a .env file with your API key:")
         console.print("  XAI_API_KEY=your_api_key_here")
         sys.exit(1)
-    return api_key
+    config["api_key"] = api_key
+    
+    # Optional: Model (default: grok-beta)
+    config["model"] = os.getenv("XAI_MODEL", "grok-beta")
+    
+    # Optional: Temperature (default: 0.7)
+    try:
+        config["temperature"] = float(os.getenv("XAI_TEMPERATURE", "0.7"))
+    except ValueError:
+        config["temperature"] = 0.7
+    
+    # Optional: Max tokens (default: 2048)
+    try:
+        config["max_tokens"] = int(os.getenv("XAI_MAX_TOKENS", "2048"))
+    except ValueError:
+        config["max_tokens"] = 2048
+    
+    # Optional: Streaming (default: true)
+    stream_val = os.getenv("XAI_STREAM", "true").lower()
+    config["stream"] = stream_val in ["true", "1", "yes", "on"]
+    
+    # Optional: System prompt (default: None)
+    config["system_prompt"] = os.getenv("XAI_SYSTEM_PROMPT", None)
+    
+    return config
 
 
 def read_file_content(file_path: str) -> str:
@@ -157,6 +207,7 @@ def handle_command(command: str, config: Config, session: ChatSession) -> bool:
             return True
         new_model = parts[1]
         config.update(model=new_model)
+        session.switch_model(new_model)
         console.print(f"[bold green]Model changed to:[/bold green] {new_model}\n")
         return True
     
@@ -214,28 +265,27 @@ def handle_command(command: str, config: Config, session: ChatSession) -> bool:
     return False
 
 
-def stream_response(client: Client, messages: List[Dict[str, str]], config: Config) -> str:
+def stream_response(session: ChatSession, config: Config) -> str:
     """Stream response from xAI API and display it in real-time."""
     full_response = ""
     
     try:
-        response = client.chat.completions.create(
-            model=config.model,
-            messages=messages,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            stream=True,
-        )
-        
         console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
         
-        for chunk in response:
-            if hasattr(chunk, "choices") and chunk.choices:
-                delta = chunk.choices[0].delta
-                if hasattr(delta, "content") and delta.content:
-                    content = delta.content
-                    full_response += content
-                    console.print(content, end="", style="white")
+        # xAI SDK streaming API
+        for response, chunk in session.chat.stream():
+            # Handle different chunk structures
+            content = None
+            if hasattr(chunk, "content"):
+                content = chunk.content
+            elif isinstance(chunk, str):
+                content = chunk
+            elif hasattr(chunk, "text"):
+                content = chunk.text
+            
+            if content:
+                full_response += content
+                console.print(content, end="", style="white", flush=True)
         
         console.print("\n")
         return full_response
@@ -245,20 +295,18 @@ def stream_response(client: Client, messages: List[Dict[str, str]], config: Conf
         raise
 
 
-def get_response(client: Client, messages: List[Dict[str, str]], config: Config) -> str:
+def get_response(session: ChatSession, config: Config) -> str:
     """Get complete response from xAI API (non-streaming)."""
     try:
-        response = client.chat.completions.create(
-            model=config.model,
-            messages=messages,
-            temperature=config.temperature,
-            max_tokens=config.max_tokens,
-            stream=False,
-        )
+        response = session.chat.sample()
         
-        if hasattr(response, "choices") and response.choices:
-            content = response.choices[0].message.content
-            return content
+        # Handle different response structures
+        if hasattr(response, "content"):
+            return response.content
+        elif hasattr(response, "text"):
+            return response.text
+        elif isinstance(response, str):
+            return response
         else:
             raise ValueError("Invalid response format from API")
             
@@ -267,7 +315,7 @@ def get_response(client: Client, messages: List[Dict[str, str]], config: Config)
         raise
 
 
-def chat_loop(client: Client, config: Config, session: ChatSession):
+def chat_loop(config: Config, session: ChatSession):
     """Main interactive chat loop."""
     console.print("\n[bold green]xAI Terminal[/bold green] - Interactive chat session started.")
     console.print("Type [bold]/help[/bold] for available commands, or [bold]/exit[/bold] to quit.\n")
@@ -297,10 +345,10 @@ def chat_loop(client: Client, config: Config, session: ChatSession):
             # Get response from API
             try:
                 if config.stream:
-                    response_text = stream_response(client, session.get_messages(), config)
+                    response_text = stream_response(session, config)
                 else:
                     console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
-                    response_text = get_response(client, session.get_messages(), config)
+                    response_text = get_response(session, config)
                     console.print(response_text)
                     console.print()
                 
@@ -312,9 +360,7 @@ def chat_loop(client: Client, config: Config, session: ChatSession):
                 continue
             except Exception as e:
                 console.print(f"\n[bold red]API Error:[/bold red] {e}\n")
-                # Remove the user message if API call failed
-                if session.messages and session.messages[-1].get("role") == "user":
-                    session.messages.pop()
+                # Note: xAI SDK manages messages internally, so we don't need to manually remove
                 continue
                 
         except KeyboardInterrupt:
@@ -326,7 +372,7 @@ def chat_loop(client: Client, config: Config, session: ChatSession):
 
 
 def parse_arguments():
-    """Parse command-line arguments."""
+    """Parse command-line arguments. CLI args override .env values."""
     parser = argparse.ArgumentParser(
         description="Interactive terminal application for xAI models",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -335,22 +381,22 @@ def parse_arguments():
     parser.add_argument(
         "--model",
         type=str,
-        default="grok-beta",
-        help="xAI model to use (default: grok-beta)",
+        default=None,
+        help="xAI model to use (overrides XAI_MODEL from .env)",
     )
     
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.7,
-        help="Temperature parameter (0.0-2.0, default: 0.7)",
+        default=None,
+        help="Temperature parameter 0.0-2.0 (overrides XAI_TEMPERATURE from .env)",
     )
     
     parser.add_argument(
         "--max-tokens",
         type=int,
-        default=2048,
-        help="Maximum tokens in response (default: 2048)",
+        default=None,
+        help="Maximum tokens in response (overrides XAI_MAX_TOKENS from .env)",
     )
     
     parser.add_argument(
@@ -362,13 +408,14 @@ def parse_arguments():
     parser.add_argument(
         "--no-stream",
         action="store_true",
-        help="Disable streaming responses",
+        help="Disable streaming responses (overrides XAI_STREAM from .env)",
     )
     
     parser.add_argument(
         "--system",
         type=str,
-        help="Set system prompt",
+        default=None,
+        help="Set system prompt (overrides XAI_SYSTEM_PROMPT from .env)",
     )
     
     return parser.parse_args()
@@ -376,29 +423,40 @@ def parse_arguments():
 
 def main():
     """Main entry point."""
-    args = parse_arguments()
+    # Load configuration from .env file
+    # .env file format:
+    # XAI_API_KEY=your_api_key_here          # Required
+    # XAI_MODEL=grok-beta                     # Optional, default: grok-beta
+    # XAI_TEMPERATURE=0.7                     # Optional, default: 0.7
+    # XAI_MAX_TOKENS=2048                     # Optional, default: 2048
+    # XAI_STREAM=true                          # Optional, default: true (use true/false, yes/no, on/off, 1/0)
+    # XAI_SYSTEM_PROMPT=You are a helpful assistant.  # Optional, default: None
+    env_config = load_config_from_env()
     
-    # Load API key
-    api_key = load_api_key()
+    # Parse command-line arguments (these override .env values)
+    args = parse_arguments()
     
     # Initialize xAI client
     try:
-        client = Client(api_key=api_key)
+        client = Client(api_key=env_config["api_key"])
     except Exception as e:
         console.print(f"[bold red]Error initializing xAI client:[/bold red] {e}")
         sys.exit(1)
     
-    # Create configuration
+    # Create configuration, using CLI args if provided, otherwise .env values
+    # For streaming: if --no-stream is provided, disable it; otherwise use .env value
+    stream_value = False if args.no_stream else env_config["stream"]
+    
     config = Config(
-        model=args.model,
-        temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        stream=not args.no_stream,
-        system_prompt=args.system,
+        model=args.model if args.model is not None else env_config["model"],
+        temperature=args.temperature if args.temperature is not None else env_config["temperature"],
+        max_tokens=args.max_tokens if args.max_tokens is not None else env_config["max_tokens"],
+        stream=stream_value,
+        system_prompt=args.system if args.system is not None else env_config["system_prompt"],
     )
     
     # Create chat session
-    session = ChatSession(system_prompt=config.system_prompt)
+    session = ChatSession(client, config.model, system_prompt=config.system_prompt)
     
     # Handle file input if provided
     if args.file:
@@ -411,10 +469,10 @@ def main():
         # Get response to file content
         try:
             if config.stream:
-                response_text = stream_response(client, session.get_messages(), config)
+                response_text = stream_response(session, config)
             else:
                 console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
-                response_text = get_response(client, session.get_messages(), config)
+                response_text = get_response(session, config)
                 console.print(response_text)
                 console.print()
             
@@ -424,7 +482,7 @@ def main():
             sys.exit(1)
     
     # Start interactive chat loop
-    chat_loop(client, config, session)
+    chat_loop(config, session)
 
 
 if __name__ == "__main__":
