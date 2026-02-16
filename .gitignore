@@ -18,3 +18,4 @@ wheels/
 *.swp
 *.swo
 *~
+.agent-readme.md
